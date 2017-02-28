@@ -42,6 +42,9 @@ public class DfuServiceInitiator {
 
 	private boolean disableNotification;
 
+	private boolean isAlternativeFirmwareSource;
+	private boolean isAlternativeInitPacketSource;
+
 	private Uri fileUri;
 	private String filePath;
 	private int fileResId;
@@ -52,6 +55,7 @@ public class DfuServiceInitiator {
 
 	private String mimeType;
 	private int fileType = -1;
+	private int alternativeSourceFirmwareResourceType;
 
 	private boolean keepBond;
 	private boolean forceDfu = false;
@@ -372,6 +376,9 @@ public class DfuServiceInitiator {
 		intent.putExtra(DfuBaseService.EXTRA_KEEP_BOND, keepBond);
 		intent.putExtra(DfuBaseService.EXTRA_FORCE_DFU, forceDfu);
 		intent.putExtra(DfuBaseService.EXTRA_UNSAFE_EXPERIMENTAL_BUTTONLESS_DFU, enableUnsafeExperimentalButtonlessDfu);
+		intent.putExtra(DfuBaseService.EXTRA_ALTERNATIVE_FIRMWARE_SOURCE, isAlternativeFirmwareSource);
+		intent.putExtra(DfuBaseService.EXTRA_ALTERNATIVE_INIT_PACKET_SOURCE, isAlternativeInitPacketSource);
+		intent.putExtra(DfuBaseService.EXTRA_ALTERNATIVE_SOURCE_FIRMWARE_RESOURCE_TYPE, alternativeSourceFirmwareResourceType);
 		if (packetReceiptNotificationsEnabled != null) {
 			intent.putExtra(DfuBaseService.EXTRA_PACKET_RECEIPT_NOTIFICATIONS_ENABLED, packetReceiptNotificationsEnabled);
 			intent.putExtra(DfuBaseService.EXTRA_PACKET_RECEIPT_NOTIFICATIONS_VALUE, numberOfPackets);
@@ -409,6 +416,49 @@ public class DfuServiceInitiator {
 			this.initFilePath = null;
 			this.initFileResId = 0;
 		}
+		return this;
+	}
+
+	/**
+	 * If the firmware image binary is to be retrieved by alternative means other than a file (eg. stream through network), this flag will ensure that
+	 * the appropriate download methods are invoked. Note that it is up to the application to implement
+	 * the methods to retrieve the binary from BaseDfuService.
+	 * @param isAlternativeSource Set this to true if an alternative source is required, false otherwise.
+	 * @param updateType the type of update - a bit field created from:
+	 *  	<ul>
+	 * 		    <li>{@link DfuBaseService#TYPE_APPLICATION} - the Application will be sent</li>
+	 * 		    <li>{@link DfuBaseService#TYPE_SOFT_DEVICE} - he Soft Device will be sent</li>
+	 * 		    <li>{@link DfuBaseService#TYPE_BOOTLOADER} - the Bootloader will be sent</li>
+	 * 		</ul>
+	 * @param firmwareResourceType the type that dictates how the firmware should be parsed - one of
+	 *  	<ul>
+	 * 		    <li>{@link DfuBaseService#FIRMWARE_RESOURCE_TYPE_BIN}</li>
+	 * 		    <li>{@link DfuBaseService#FIRMWARE_RESOURCE_TYPE_HEX}</li>
+	 * 		</ul>
+	 * @return the builder
+     */
+	public DfuServiceInitiator setUseAlternativeFirmwareSource(boolean isAlternativeSource, int updateType, int firmwareResourceType) {
+		if (isAlternativeSource) {
+			init(null, null, 0, updateType, DfuBaseService.MIME_TYPE_OCTET_STREAM);
+		}
+		this.alternativeSourceFirmwareResourceType = firmwareResourceType;
+		this.isAlternativeFirmwareSource = isAlternativeSource;
+
+		return this;
+	}
+
+	/**
+	 * If the init packet is to be retrieved by alternative means other than a file (eg. stream through network), this flag will ensure that
+	 * the appropriate methods are invoked. Note that it is up to the application to implement
+	 * the methods to retrieve the binary from BaseDfuService.
+	 * @param isAlternativeSource Set this to true if an alternative source is required, false otherwise.
+	 * @return the builder
+     */
+	public DfuServiceInitiator setUseAlternativeInitPacketSource(boolean isAlternativeSource) {
+		init(null, null, 0);
+
+		this.isAlternativeInitPacketSource = isAlternativeSource;
+
 		return this;
 	}
 }
