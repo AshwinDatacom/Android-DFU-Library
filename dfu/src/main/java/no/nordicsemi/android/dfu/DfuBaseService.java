@@ -1252,6 +1252,7 @@ public abstract class DfuBaseService extends IntentService implements DfuProgres
 	 * @return the input stream with the binary content
 	 * @throws IOException if input stream could not be opened successfully
      */
+	@WorkerThread
 	protected InputStream openFirmwareInputStream(final int updateType) throws IOException {
 		return null;
 	}
