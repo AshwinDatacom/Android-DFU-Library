@@ -1234,7 +1234,12 @@ public abstract class DfuBaseService extends IntentService implements DfuProgres
 	private InputStream openInputStream(final int mbrSize, final int updateType, final int firmwareResourceType) throws IOException {
 		final InputStream is = openFirmwareInputStream(updateType);
 
-		if (is != null && firmwareResourceType == FIRMWARE_RESOURCE_TYPE_HEX) {
+		if (is == null)
+		{
+			throw new IOException("Unable to open input stream. Please ensure that openFirmwareInputStream() is implemented");
+		}
+
+		if (firmwareResourceType == FIRMWARE_RESOURCE_TYPE_HEX) {
 			return new HexInputStream(is, mbrSize);
 		}
 
@@ -1248,7 +1253,6 @@ public abstract class DfuBaseService extends IntentService implements DfuProgres
 	 *                   {@link DfuBaseService#TYPE_APPLICATION}
 	 *                   {@link DfuBaseService#TYPE_BOOTLOADER}
 	 *                   {@link DfuBaseService#TYPE_SOFT_DEVICE}
-	 *                   {@link DfuBaseService#TYPE_AUTO}
 	 * @return the input stream with the binary content
 	 * @throws IOException if input stream could not be opened successfully
      */
