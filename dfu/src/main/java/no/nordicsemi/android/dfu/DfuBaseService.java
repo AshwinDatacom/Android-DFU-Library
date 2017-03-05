@@ -44,6 +44,7 @@ import android.net.Uri;
 import android.os.SystemClock;
 import android.preference.PreferenceManager;
 import android.provider.MediaStore;
+import android.support.annotation.WorkerThread;
 import android.support.v4.app.NotificationCompat;
 import android.support.v4.content.LocalBroadcastManager;
 import android.util.Log;
@@ -204,6 +205,26 @@ public abstract class DfuBaseService extends IntentService implements DfuProgres
 	 * @see #EXTRA_PACKET_RECEIPT_NOTIFICATIONS_ENABLED
 	 */
 	public static final String EXTRA_PACKET_RECEIPT_NOTIFICATIONS_VALUE = "no.nordicsemi.android.dfu.extra.EXTRA_PRN_VALUE";
+
+	/**
+	 * Set this flag to true if it is required that the firmware image is retrieved via a
+	 * network access.
+	 * Use {@link #EXTRA_FILE_PATH} if the content is stored in a file on the device.
+	 */
+	public static final String EXTRA_ALTERNATIVE_FIRMWARE_SOURCE = "no.nordicsemi.android.dfu.extra.EXTRA_ALTERNATIVE_FIRMWARE_SOURCE";
+
+	/**
+	 * Set this flag to true if it is required that the init packet binary is retrieved via a
+	 * network access.
+	 * Use {@link #EXTRA_INIT_FILE_PATH} if the content is stored in a file on the device.
+	 */
+	public static final String EXTRA_ALTERNATIVE_INIT_PACKET_SOURCE = "no.nordicsemi.android.dfu.extra.EXTRA_ALTERNATIVE_INIT_PACKET_SOURCE";
+
+	/**
+	 * This determines how the input stream of the firmware image from the alternative source (not file) is parsed
+	 */
+	public static final String EXTRA_ALTERNATIVE_SOURCE_FIRMWARE_RESOURCE_TYPE = "no.nordicsemi.android.dfu.extra.EXTRA_ALTERNATIVE_SOURCE_FIRMWARE_RESOURCE_TYPE";
+
 	/**
 	 * A path to the file with the new firmware. It may point to a HEX, BIN or a ZIP file.
 	 * Some file manager applications return the path as a String while other return a Uri. Use the {@link #EXTRA_FILE_URI} in the later case.
@@ -316,6 +337,19 @@ public abstract class DfuBaseService extends IntentService implements DfuProgres
 	 * @see #EXTRA_FILE_TYPE
 	 */
 	public static final int TYPE_AUTO = 0x00;
+
+	/**
+	 * <p>
+	 * The type of the firmware resource - use this if the firmware being sourced is to parsed like a .bin file, even if it's streamed through a network
+	 * </p>
+	 */
+	public static final int FIRMWARE_RESOURCE_TYPE_BIN = 0;
+
+	/**
+	 * The type of the firmware resource - use this if the firmware being sourced is to be parsed as a .hex file, even if it's streamed through a network
+	 */
+	public static final int FIRMWARE_RESOURCE_TYPE_HEX = 1;
+
 	/**
 	 * An extra field with progress and error information used in broadcast events.
 	 */
@@ -861,7 +895,11 @@ public abstract class DfuBaseService extends IntentService implements DfuProgres
 		final String initFilePath = intent.getStringExtra(EXTRA_INIT_FILE_PATH);
 		final Uri initFileUri = intent.getParcelableExtra(EXTRA_INIT_FILE_URI);
 		final int initFileResId = intent.getIntExtra(EXTRA_INIT_FILE_RES_ID, 0);
+		final boolean isAlternativeFirmwareSource = intent.getBooleanExtra(EXTRA_ALTERNATIVE_FIRMWARE_SOURCE, false);
+		final boolean isAlternativeInitPacketSource = intent.getBooleanExtra(EXTRA_ALTERNATIVE_INIT_PACKET_SOURCE, false);
+		final int alternativeSourceFirmwareResourceType = intent.getIntExtra(EXTRA_ALTERNATIVE_SOURCE_FIRMWARE_RESOURCE_TYPE, 0);
 		int fileType = intent.getIntExtra(EXTRA_FILE_TYPE, TYPE_AUTO);
+
 		if (filePath != null && fileType == TYPE_AUTO)
 			fileType = filePath.toLowerCase(Locale.US).endsWith("zip") ? TYPE_AUTO : TYPE_APPLICATION;
 		String mimeType = intent.getStringExtra(EXTRA_FILE_MIME_TYPE);
@@ -912,7 +950,10 @@ public abstract class DfuBaseService extends IntentService implements DfuProgres
 			// Prepare data to send, calculate stream size
 			try {
 				sendLogBroadcast(LOG_LEVEL_VERBOSE, "Opening file...");
-				if (fileUri != null) {
+
+				if (isAlternativeFirmwareSource) {
+					is = openInputStream(mbrSize, fileType, alternativeSourceFirmwareResourceType);
+				} else if (fileUri != null) {
 					is = openInputStream(fileUri, mimeType, mbrSize, fileType);
 				} else if (filePath != null) {
 					is = openInputStream(filePath, mimeType, mbrSize, fileType);
@@ -920,7 +961,9 @@ public abstract class DfuBaseService extends IntentService implements DfuProgres
 					is = openInputStream(fileResId, mimeType, mbrSize, fileType);
 				}
 
-				if (initFileUri != null) {
+				if (isAlternativeInitPacketSource) {
+					initIs = openInitPacketInputStream();
+				} else if (initFileUri != null) {
 					// Try to read the Init Packet file from URI
 					initIs = getContentResolver().openInputStream(initFileUri);
 				} else if (initFilePath != null) {
@@ -1177,6 +1220,57 @@ public abstract class DfuBaseService extends IntentService implements DfuProgres
 			cursor.close();
 		}
 		return is;
+	}
+
+	/**
+	 * Invoked if the input stream for the firmware image is to be retrieved through alternative means other than a file.
+	 *
+	 * @param mbrSize  the size of MBR, by default 0x1000
+	 * @param updateType the content update type
+	 * @param firmwareResourceType the firmware resource type (bin or hex)
+	 * @return the input stream with the binary image content
+	 * @throws IOException if input stream could not be opened successfully
+	 */
+	private InputStream openInputStream(final int mbrSize, final int updateType, final int firmwareResourceType) throws IOException {
+		final InputStream is = openFirmwareInputStream(updateType);
+
+		if (is == null)
+		{
+			throw new IOException("Unable to open input stream. Please ensure that openFirmwareInputStream() is implemented");
+		}
+
+		if (firmwareResourceType == FIRMWARE_RESOURCE_TYPE_HEX) {
+			return new HexInputStream(is, mbrSize);
+		}
+
+		return is;
+	}
+
+	/**
+	 * Invoked if the input stream for the firmware image is to be retrieved through alternative means other than a file. It is
+	 * up to the application to provide an implementation for this
+	 * @param updateType one of:
+	 *                   {@link DfuBaseService#TYPE_APPLICATION}
+	 *                   {@link DfuBaseService#TYPE_BOOTLOADER}
+	 *                   {@link DfuBaseService#TYPE_SOFT_DEVICE}
+	 * @return the input stream with the binary content
+	 * @throws IOException if input stream could not be opened successfully
+     */
+	@WorkerThread
+	protected InputStream openFirmwareInputStream(final int updateType) throws IOException {
+		return null;
+	}
+
+	/**
+	 * Invoked if the input stream for the init packet is to be retrieved through alternative means other than a file.
+	 * It is up to the application to provide an implementation for this.
+	 *
+	 * @return the input stream with the binary content of the init packet
+	 * @throws IOException if input stream could not be opened successfully
+	 */
+	@WorkerThread
+	protected InputStream openInitPacketInputStream() throws IOException {
+		return null;
 	}
 
 	/**
